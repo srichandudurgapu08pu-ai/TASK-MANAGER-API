@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task API — Demo Console</title>
+<style>
+  :root{
+    --bg:#0d1117;
+    --panel:#151b23;
+    --border:#262e38;
+    --text:#e6edf3;
+    --muted:#7d8590;
+    --accent:#3fb950;
+    --accent-2:#58a6ff;
+    --danger:#f85149;
+    --warn:#d29922;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:ui-monospace,'SF Mono','Cascadia Code',Consolas,monospace;
+    min-height:100vh;
+  }
+  .shell{max-width:880px;margin:0 auto;padding:36px 20px 80px;}
+  header{margin-bottom:28px;}
+  .badge{display:inline-block;font-size:0.68rem;letter-spacing:1px;color:var(--accent);border:1px solid var(--accent);padding:2px 8px;border-radius:4px;margin-bottom:10px;}
+  h1{margin:0 0 6px;font-size:1.5rem;}
+  .sub{color:var(--muted);font-size:0.85rem;}
+
+  .stats{display:flex;gap:10px;margin:22px 0;flex-wrap:wrap;}
+  .stat{
+    background:var(--panel);border:1px solid var(--border);border-radius:8px;
+    padding:12px 16px;flex:1;min-width:90px;
+  }
+  .stat .n{font-size:1.4rem;font-weight:700;}
+  .stat .l{font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+
+  .add{
+    display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;
+  }
+  .add input[type=text]{
+    flex:1;min-width:200px;
+    background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:11px 14px;border-radius:8px;font-family:inherit;font-size:0.85rem;
+  }
+  .add select{
+    background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:11px;border-radius:8px;font-family:inherit;font-size:0.8rem;
+  }
+  .add button{
+    background:var(--accent);color:#0d1117;border:none;border-radius:8px;
+    padding:11px 18px;font-weight:700;cursor:pointer;font-family:inherit;font-size:0.85rem;
+  }
+  .add button:hover{filter:brightness(1.1);}
+
+  .filters{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+  .filters button{
+    background:transparent;border:1px solid var(--border);color:var(--muted);
+    padding:7px 14px;border-radius:999px;font-size:0.75rem;cursor:pointer;font-family:inherit;
+  }
+  .filters button.active{border-color:var(--accent-2);color:var(--accent-2);}
+
+  .list{display:flex;flex-direction:column;gap:8px;}
+  .task{
+    background:var(--panel);border:1px solid var(--border);border-radius:8px;
+    padding:13px 16px;display:flex;align-items:center;gap:12px;
+  }
+  .task.done{opacity:0.55;}
+  .task .check{
+    width:20px;height:20px;border-radius:5px;border:2px solid var(--accent);
+    cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.7rem;
+  }
+  .task.done .check{background:var(--accent);color:#0d1117;}
+  .task .title{flex:1;font-size:0.88rem;}
+  .task.done .title{text-decoration:line-through;}
+  .prio{font-size:0.65rem;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px;}
+  .prio.high{background:rgba(248,81,73,0.15);color:var(--danger);}
+  .prio.medium{background:rgba(210,153,34,0.15);color:var(--warn);}
+  .prio.low{background:rgba(63,185,80,0.15);color:var(--accent);}
+  .task .del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.9rem;}
+  .task .del:hover{color:var(--danger);}
+
+  .empty{text-align:center;color:var(--muted);padding:50px 0;font-size:0.85rem;}
+  .endpoint-note{
+    margin-top:40px;padding:16px 18px;background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;font-size:0.76rem;color:var(--muted);line-height:1.7;
+  }
+  .endpoint-note code{color:var(--accent-2);}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="badge">● API CONNECTED</div>
+    <h1>Task API — Demo Console</h1>
+    <div class="sub">A thin client exercising every endpoint of the Express backend.</div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="add">
+    <input type="text" id="title" placeholder="New task title...">
+    <select id="priority">
+      <option value="low">low</option>
+      <option value="medium" selected>medium</option>
+      <option value="high">high</option>
+    </select>
+    <button id="addBtn">Add task</button>
+  </div>
+
+  <div class="filters" id="filters">
+    <button data-f="all" class="active">All</button>
+    <button data-f="pending">Pending</button>
+    <button data-f="done">Done</button>
+  </div>
+
+  <div class="list" id="list"></div>
+  <div class="endpoint-note">
+    Backed by <code>GET/POST /api/tasks</code>, <code>PATCH /api/tasks/:id/toggle</code>,
+    <code>DELETE /api/tasks/:id</code>, and <code>GET /api/stats</code>.
+  </div>
+</div>
+
+<script>
+const API = '/api';
+let currentFilter = 'all';
+
+async function fetchTasks(){
+  const params = new URLSearchParams();
+  if(currentFilter !== 'all') params.set('status', currentFilter);
+  const res = await fetch(`${API}/tasks?${params}`);
+  const data = await res.json();
+  return data.tasks;
+}
+
+async function fetchStats(){
+  const res = await fetch(`${API}/stats`);
+  return res.json();
+}
+
+function renderStats(stats){
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="n">${stats.total}</div><div class="l">Total</div></div>
+    <div class="stat"><div class="n">${stats.pending}</div><div class="l">Pending</div></div>
+    <div class="stat"><div class="n">${stats.done}</div><div class="l">Done</div></div>
+    <div class="stat"><div class="n">${stats.byPriority.high}</div><div class="l">High prio</div></div>
+  `;
+}
+
+function renderTasks(tasks){
+  const list = document.getElementById('list');
+  if(tasks.length === 0){
+    list.innerHTML = '<div class="empty">No tasks here. Add one above.</div>';
+    return;
+  }
+  list.innerHTML = tasks.map(t => `
+    <div class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
+      <div class="check" data-action="toggle">${t.done ? '✓' : ''}</div>
+      <div class="title">${escapeHtml(t.title)}</div>
+      <span class="prio ${t.priority}">${t.priority}</span>
+      <button class="del" data-action="delete">✕</button>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+async function refresh(){
+  const [tasks, stats] = await Promise.all([fetchTasks(), fetchStats()]);
+  renderTasks(tasks);
+  renderStats(stats);
+}
+
+document.getElementById('addBtn').onclick = async () => {
+  const titleEl = document.getElementById('title');
+  const title = titleEl.value.trim();
+  if(!title) return;
+  const priority = document.getElementById('priority').value;
+  await fetch(`${API}/tasks`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ title, priority })
+  });
+  titleEl.value = '';
+  refresh();
+};
+document.getElementById('title').addEventListener('keydown', e => {
+  if(e.key === 'Enter') document.getElementById('addBtn').click();
+});
+
+document.getElementById('list').addEventListener('click', async (e) => {
+  const taskEl = e.target.closest('.task');
+  if(!taskEl) return;
+  const id = taskEl.dataset.id;
+  const action = e.target.dataset.action;
+  if(action === 'toggle'){
+    await fetch(`${API}/tasks/${id}/toggle`, { method: 'PATCH' });
+    refresh();
+  } else if(action === 'delete'){
+    await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+    refresh();
+  }
+});
+
+document.getElementById('filters').addEventListener('click', (e) => {
+  if(e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('#filters button').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  currentFilter = e.target.dataset.f;
+  refresh();
+});
+
+refresh();
+</script>
+</body>
+</html>
